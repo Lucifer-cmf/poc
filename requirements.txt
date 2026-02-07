@@ -1,0 +1,8 @@
+streamlit
+python-dotenv
+pymongo
+PyPDF2
+langchain
+langchain-google-genai
+langchain-mongodb
+langchain-text-splitters
