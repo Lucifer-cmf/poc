@@ -7,8 +7,8 @@ from langchain_google_genai import (
     GoogleGenerativeAIEmbeddings
 )
 from langchain_mongodb import MongoDBAtlasVectorSearch
-from langchain.chains import create_retrieval_chain
-from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_community.chains import create_retrieval_chain
+from langchain_community.chains.combine_documents import create_stuff_documents_chain
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda
 
@@ -80,3 +80,4 @@ Question:
     qa_chain = create_retrieval_chain(retriever, document_chain)
 
     return qa_chain
+
