@@ -44,6 +44,8 @@ if "chat_loaded" not in st.session_state:
     st.session_state.chat_loaded = True
 
 # ---------------- Sidebar ----------------
+org_id = None  # always define it safely
+
 with st.sidebar:
     st.title(f"👤 {email}")
 
@@ -53,31 +55,30 @@ with st.sidebar:
 
     st.divider()
 
-    # -------- ORGANIZATION MODE --------
+    # -------- ORGANIZATION MODE ONLY --------
     if account_type == "organization":
         st.subheader("Workspace")
 
         orgs = get_user_orgs(user_id)
-        org_names = [o["name"] for o in orgs]
 
-        selected_org = st.selectbox("Select workspace", org_names)
+        if orgs:
+            org_names = [o["name"] for o in orgs]
+            selected_org = st.selectbox("Select workspace", org_names)
 
-        org_id = None
-        for o in orgs:
-            if o["name"] == selected_org:
-                org_id = str(o["_id"])
-                break
+            for o in orgs:
+                if o["name"] == selected_org:
+                    org_id = str(o["_id"])
+                    break
 
-        # Invite members
-        st.subheader("Invite Member")
-        invite_email = st.text_input("Email")
+            # Invite members
+            st.subheader("Invite Member")
+            invite_email = st.text_input("Email")
 
-        if st.button("Send Invite"):
-            token = create_invite(invite_email, org_id)
-            st.success(f"Invite token: {token}")
-
-    else:
-        org_id = None
+            if st.button("Send Invite"):
+                token = create_invite(invite_email, org_id)
+                st.success(f"Invite token: {token}")
+        else:
+            st.info("You are not part of any workspace.")
 
     st.divider()
 
@@ -91,7 +92,7 @@ with st.sidebar:
 
     if files and st.button("Process Documents"):
         with st.spinner("Processing PDFs..."):
-            if account_type == "organization":
+            if account_type == "organization" and org_id:
                 store_embeddings(files, org_id=org_id)
                 st.session_state.qa_chain = get_qa_chain(org_id=org_id)
             else:
@@ -101,7 +102,6 @@ with st.sidebar:
             st.session_state.chat_history = []
 
         st.success("Documents ready for chat!")
-
 # ---------------- Main chat ----------------
 st.title("📄 PDF Chat Assistant")
 
