@@ -2,41 +2,87 @@ import streamlit as st
 from dotenv import load_dotenv
 import os
 
+from pymongo import MongoClient
 from vector_embedding import store_embeddings
 from generative import get_qa_chain
 from auth import auth_screen
-from storage import save_message, load_chat_history
+from storage import (
+    save_message,
+    load_chat_history,
+    get_user_orgs,
+    create_invite
+)
 
 load_dotenv()
 
+MONGODB_URI = os.getenv("MONGODB_URI")
+client = MongoClient(MONGODB_URI)
+db = client["vector_db"]
+pdf_collection = db["pdf_docs"]
+
 st.set_page_config(page_title="PDF Chatbot", page_icon="📄", layout="wide")
 
-# ----------------- Session State -----------------
+# ---------------- Session state ----------------
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
 if "qa_chain" not in st.session_state:
     st.session_state.qa_chain = None
 
-if "docs_loaded" not in st.session_state:
-    st.session_state.docs_loaded = False
-
-# ----------------- Authentication -----------------
-if "user" not in st.session_state:
+# ---------------- Authentication ----------------
+if "user_id" not in st.session_state:
     auth_screen()
     st.stop()
 
-# Load previous chats once
+user_id = st.session_state.user_id
+email = st.session_state.email
+account_type = st.session_state.get("account_type", "individual")
+
+# Load chat history once
 if "chat_loaded" not in st.session_state:
-    st.session_state.chat_history = load_chat_history(st.session_state.user)
+    st.session_state.chat_history = load_chat_history(user_id)
     st.session_state.chat_loaded = True
 
-
-# ----------------- Sidebar -----------------
+# ---------------- Sidebar ----------------
 with st.sidebar:
-    
-    st.title("📂 Document Upload")
+    st.title(f"👤 {email}")
 
+    if st.button("Logout"):
+        st.session_state.clear()
+        st.rerun()
+
+    st.divider()
+
+    # -------- ORGANIZATION MODE --------
+    if account_type == "organization":
+        st.subheader("Workspace")
+
+        orgs = get_user_orgs(user_id)
+        org_names = [o["name"] for o in orgs]
+
+        selected_org = st.selectbox("Select workspace", org_names)
+
+        org_id = None
+        for o in orgs:
+            if o["name"] == selected_org:
+                org_id = str(o["_id"])
+                break
+
+        # Invite members
+        st.subheader("Invite Member")
+        invite_email = st.text_input("Email")
+
+        if st.button("Send Invite"):
+            token = create_invite(invite_email, org_id)
+            st.success(f"Invite token: {token}")
+
+    else:
+        org_id = None
+
+    st.divider()
+
+    # -------- Upload section --------
+    st.subheader("Upload PDFs")
     files = st.file_uploader(
         "Upload PDFs",
         type="pdf",
@@ -45,52 +91,59 @@ with st.sidebar:
 
     if files and st.button("Process Documents"):
         with st.spinner("Processing PDFs..."):
-            store_embeddings(files)
-            st.session_state.qa_chain = get_qa_chain()
+            if account_type == "organization":
+                store_embeddings(files, org_id=org_id)
+                st.session_state.qa_chain = get_qa_chain(org_id=org_id)
+            else:
+                store_embeddings(files, user_id=user_id)
+                st.session_state.qa_chain = get_qa_chain(user_id=user_id)
+
             st.session_state.chat_history = []
-            st.session_state.docs_loaded = True
+
         st.success("Documents ready for chat!")
 
-    st.divider()
-    st.title(f"👤 {st.session_state.user}")
-
-    if st.button("Logout"):
-        st.session_state.clear()
-        st.rerun()
-
-
-# ----------------- Main Chat Area -----------------
+# ---------------- Main chat ----------------
 st.title("📄 PDF Chat Assistant")
 
-if not st.session_state.docs_loaded:
-    st.info("Upload PDFs from the sidebar to begin.")
+# Check if context exists
+# Check if context exists
+if account_type == "organization" and org_id:
+    context_filter = {"org_id": str(org_id)}
+else:
+    context_filter = {"user_id": str(user_id)}
 
-# Display chat history
+context_exists = pdf_collection.find_one(context_filter)
+
+# Show chat history
 for role, message in st.session_state.chat_history:
     with st.chat_message(role):
         st.markdown(message)
 
-# Chat input
-if st.session_state.qa_chain:
-    user_input = st.chat_input("Ask a question about your documents...")
+# If no context, block chat
+if not context_exists:
+    st.info("Upload PDFs in the sidebar to create your knowledge base.")
+    st.stop()
 
-    if user_input:
-        # Save user message
-        st.session_state.chat_history.append(("user", user_input))
-        save_message(st.session_state.user, "user", user_input)
+# If context exists but chain not created yet
+if not st.session_state.qa_chain:
+    if account_type == "organization":
+        st.session_state.qa_chain = get_qa_chain(org_id=org_id)
+    else:
+        st.session_state.qa_chain = get_qa_chain(user_id=user_id)
 
-        with st.chat_message("user"):
-            st.markdown(user_input)
+# ---------------- Chat input ----------------
+user_input = st.chat_input("Ask a question...")
 
-        # Assistant response
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                result = st.session_state.qa_chain.invoke(
-                    {"input": user_input}
-                )
-                answer = result["answer"]
-                st.markdown(answer)
+if user_input:
+    st.session_state.chat_history.append(("user", user_input))
+    save_message(user_id, "user", user_input)
 
-        # Save assistant message
-        st.session_state.chat_history.append(("assistant", answer))
-        save_message(st.session_state.user, "assistant", answer)
+    with st.chat_message("assistant"):
+        result = st.session_state.qa_chain.invoke(
+            {"input": user_input}
+        )
+        answer = result["answer"]
+        st.markdown(answer)
+
+    st.session_state.chat_history.append(("assistant", answer))
+    save_message(user_id, "assistant", answer)
