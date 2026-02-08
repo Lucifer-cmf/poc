@@ -5,7 +5,6 @@ import os
 from pymongo import MongoClient
 from vector_embedding import store_embeddings
 from generative import get_qa_chain
-from auth import auth_screen
 from storage import (
     save_message,
     load_chat_history,
@@ -147,3 +146,4 @@ if user_input:
 
     st.session_state.chat_history.append(("assistant", answer))
     save_message(user_id, "assistant", answer)
+
