@@ -11,11 +11,9 @@ from langchain_mongodb import MongoDBAtlasVectorSearch
 load_dotenv()
 
 MONGODB_URI = os.getenv("MONGODB_URI")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-# MongoDB setup
 client = MongoClient(MONGODB_URI)
-db = client["vector_db"]
+db = client["vector_db"]   # must match everywhere
 collection = db["pdf_docs"]
 
 
@@ -29,32 +27,54 @@ def load_pdf(file):
     return text
 
 
-def store_embeddings(files):
-    # Read PDFs
-    all_text = ""
-    for file in files:
-        all_text += load_pdf(file) + "\n"
+from datetime import datetime
+from langchain_core.documents import Document
 
-    # Split text
+def store_embeddings(files, org_id=None, user_id=None):
+    all_text = ""
+
+    for file in files:
+        pdf_text = load_pdf(file)
+        all_text += pdf_text + "\n"
+
     splitter = CharacterTextSplitter(
         chunk_size=500,
         chunk_overlap=50
     )
     chunks = splitter.split_text(all_text)
 
-    # Create embeddings
     embeddings = GoogleGenerativeAIEmbeddings(
         model="models/gemini-embedding-001"
     )
 
-    docs = [Document(page_content=chunk) for chunk in chunks]
+    docs = []
 
-    # Store in MongoDB
+    for chunk in chunks:
+        metadata = {
+            "timestamp": datetime.now()
+        }
+
+        if org_id:
+            metadata["org_id"] = org_id
+        if user_id:
+            metadata["user_id"] = user_id
+
+        docs.append(
+            Document(
+                page_content=chunk,
+                metadata=metadata
+            )
+        )
+
     vector_store = MongoDBAtlasVectorSearch.from_documents(
         documents=docs,
         embedding=embeddings,
         collection=collection,
         index_name="vector_index"
     )
+
+    print("Documents being stored:", len(docs))
+    if docs:
+        print("Sample metadata:", docs[0].metadata)
 
     return vector_store
