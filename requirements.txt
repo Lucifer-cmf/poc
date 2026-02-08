@@ -8,4 +8,4 @@ langchain-community
 langchain-mongodb
 langchain-google-genai
 
-pypdf
+PyPDF2
